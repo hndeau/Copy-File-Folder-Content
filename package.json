@@ -2,7 +2,7 @@
   "name": "copy-file-content",
   "displayName": "Copy-File-Content",
   "publisher": "NoStrafe",
-  "repository": {"https://github.com/hndeau/Copy-File-Folder-Content"},
+  "repository": "https://github.com/hndeau/Copy-File-Folder-Content",
   "description": "Copies file and folder content. Could be used for things such as AI prompting. But, who really knows?",
   "version": "0.1.0",
   "engines": {
