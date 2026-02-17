@@ -4,7 +4,7 @@
   "publisher": "NoStrafe",
   "repository": "https://github.com/hndeau/Copy-File-Folder-Content",
   "description": "Copies file and folder content. Could be used for things such as AI prompting. But, who really knows?",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.109.0"
   },
