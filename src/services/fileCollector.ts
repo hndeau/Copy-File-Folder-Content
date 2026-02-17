@@ -11,20 +11,20 @@ export type BuildResult = {
   skippedFiles: number;
   truncated: boolean;
 
-  // NEW: useful for token estimation / UI
-  totalChars: number;      // actual output chars (includes join newlines)
-  approxTokens: number;    // heuristic
+  totalChars: number;
+  approxTokens: number;
 };
 
 const DEFAULT_CONCURRENCY = 8;
 
-// ~4 chars/token is a common rough heuristic for English-ish text.
-// Keep it simple + deterministic.
 function estimateTokensFromChars(chars: number): number {
   return Math.max(1, Math.ceil(chars / 4));
 }
 
-export async function buildClipboardTextFromUris(uris: vscode.Uri[]): Promise<BuildResult> {
+export async function buildClipboardTextFromUris(
+  uris: vscode.Uri[]
+): Promise<BuildResult> {
+
   const { maxFileBytes, maxTotalChars } = getCopyConfig();
 
   const lines: string[] = [];
@@ -34,8 +34,9 @@ export async function buildClipboardTextFromUris(uris: vscode.Uri[]): Promise<Bu
   let skippedFiles = 0;
   let truncated = false;
 
+  const seenFiles = new Set<string>();
+
   const push = (s: string): boolean => {
-    // This collector uses lines; count the newline that join() will insert
     const projected = totalChars + s.length + 1;
     if (projected > maxTotalChars) {
       return false;
@@ -45,7 +46,40 @@ export async function buildClipboardTextFromUris(uris: vscode.Uri[]): Promise<Bu
     return true;
   };
 
-  const concurrency = Math.max(1, Math.floor(DEFAULT_CONCURRENCY));
+  const MIN_BLOCK_OVERHEAD = 32;
+
+  const emitFileOnce = async (fileUri: vscode.Uri): Promise<boolean> => {
+    const key = fileUri.fsPath || fileUri.toString();
+    if (seenFiles.has(key)) {
+      return true;
+    }
+
+    if (totalChars + MIN_BLOCK_OVERHEAD >= maxTotalChars) {
+      truncated = true;
+      push('[TRUNCATED: maxTotalChars reached]\n');
+      return false;
+    }
+
+    seenFiles.add(key);
+
+    const b = await buildFileBlock(fileUri, maxFileBytes);
+    includedFiles += b.included;
+    skippedFiles += b.skipped;
+
+    if (!b.block) {
+      return true;
+    }
+
+    if (!push(b.block)) {
+      truncated = true;
+      push('[TRUNCATED: maxTotalChars reached]\n');
+      return false;
+    }
+
+    push('');
+    return true;
+  };
+
 
   for (const uri of uris) {
     const stat = await statSafe(uri);
@@ -54,64 +88,23 @@ export async function buildClipboardTextFromUris(uris: vscode.Uri[]): Promise<Bu
       continue;
     }
 
-    if (stat.type & vscode.FileType.Directory) {
-      const files = await collectFilesRecursively(uri);
-
-      // Build blocks in parallel (order-preserving via index).
-      const blocks = await mapWithConcurrency(files, concurrency, async (fileUri) => {
-        return buildFileBlock(fileUri, maxFileBytes);
-      });
-
-      // Efficient totals: sum once (no string joins) after parallel stage.
-      // These are *potential* chars if fully appended; actual output may truncate.
-      for (const b of blocks) {
-        includedFiles += b.included;
-        skippedFiles += b.skipped;
-
-        if (b.block.length === 0) {
-          continue;
-        }
-
-        if (!push(b.block.trimEnd())) {
-          truncated = true;
-          push('[TRUNCATED: maxTotalChars reached]\n');
-          return {
-            text: lines.join('\n'),
-            includedFiles,
-            skippedFiles,
-            truncated,
-            totalChars,
-            approxTokens: estimateTokensFromChars(totalChars),
-          };
-        }
+    // FILE
+    if (stat.type & vscode.FileType.File) {
+      if (!(await emitFileOnce(uri))) {
+        break;
       }
-
-      push('');
       continue;
     }
 
-    if (stat.type & vscode.FileType.File) {
-      const b = await buildFileBlock(uri, maxFileBytes);
+    // DIRECTORY
+    if (stat.type & vscode.FileType.Directory) {
+      const files = await collectFilesRecursively(uri);
 
-      includedFiles += b.included;
-      skippedFiles += b.skipped;
-
-      if (b.block.length > 0) {
-        if (!push(b.block.trimEnd())) {
-          truncated = true;
-          push('[TRUNCATED: maxTotalChars reached]\n');
-          return {
-            text: lines.join('\n'),
-            includedFiles,
-            skippedFiles,
-            truncated,
-            totalChars,
-            approxTokens: estimateTokensFromChars(totalChars),
-          };
+      for (const fileUri of files) {
+        if (!(await emitFileOnce(fileUri))) {
+          break;
         }
       }
-
-      push('');
       continue;
     }
 
@@ -127,3 +120,4 @@ export async function buildClipboardTextFromUris(uris: vscode.Uri[]): Promise<Bu
     approxTokens: estimateTokensFromChars(totalChars),
   };
 }
+

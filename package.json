@@ -24,7 +24,9 @@
     "files",
     "folders"
   ],
-"activationEvents": [],
+"activationEvents": [
+  "onCommand:copy-file-content.copySelection"
+],
 "main": "./dist/extension.js",
 "contributes": {
   "commands": [
@@ -62,7 +64,7 @@
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
     "@types/vscode": "^1.109.0",
